@@ -12,30 +12,33 @@ import logging
 from bs4 import BeautifulSoup
 import json
 
+PLACE_ID='place_id'
 WEBSITE = 'website'
 ADDRESS = 'Address'
 STATUS = 'Status'
 INDEX='Index'
-AL_PROPERTY_ID = 'al_property_id'
+UNIQUE_ID='unique_id'
 
 end_address_marker = re.compile(r'(.{0,50})\b(?:\d+\s(?:floor|office|building|street)\s[\w\s]+?,\s+[\w\s]+?,?\s*(?:nsw|new\s+south\s+wales|sydney|syd)\b.*?\b\d{4}\b)(.{0,50})', re.IGNORECASE)
-address_marker = re.compile(r"(\b(?:nsw|new\s+south\s+wales|sydney|SYD)\b[.,\s\w]+?\b\d{4}\b)", re.IGNORECASE)  
-target_keywords = ['New South Wales', 'NSW', 'Sydney', 'Syd', '2000']
+# address_marker = re.compile(r"(\b(?:nsw|new\s+south\s+wales|sydney|SYD)\b[.,\s\w]+?\b\d{4}\b)", re.IGNORECASE)  
+address_marker = re.compile(r"(\b(?:head\s+office|office|suite|level|street|st|road|rd|ave|avenue|nsw|new\s+south\s+wales|sydney|syd)\b[.,\s\w-]+?\b\d{4}\b)", re.IGNORECASE)
+target_keywords = ['New South Wales', 'NSW', 'Sydney', 'Syd', 'street','st','office','building']
 tags_to_filter = ['p', 'span', 'a', 'address']
 
 
 #logging
-logging.basicConfig(filename='property-address-crawl.log', filemode='a')
+logging.basicConfig(filename='places-api-sydney-address-crawl.log', filemode='a')
 
 # list to append all website,emailid,address
-propertys_id_list=[]
+place_id_list=[]
 website_url_list=[]
 address_list=[]
 status_list=[]
 index_list=[]
 
 def read_input_file(filename,chunksize=None):
-    columns=[AL_PROPERTY_ID, WEBSITE]
+
+    columns=[PLACE_ID, WEBSITE]
     if chunksize:
         # Read the entire file
         df=pd.read_csv(filename)
@@ -44,8 +47,7 @@ def read_input_file(filename,chunksize=None):
     else:
         return pd.read_csv(filename,sep=' ')
 
-def write_output_file(data_to_append):
-    filename = "address_matches_sydney_place_details_with_near_search_data2.json"
+def write_data_file(filename,data_to_append):
     try:
         with open(filename, "r") as json_file:
             data = json.load(json_file)
@@ -55,22 +57,18 @@ def write_output_file(data_to_append):
     with open(filename, "w") as json_file:
         json.dump(data, json_file, indent=4)
 
-def filter_content(text,tags):
-    soup = BeautifulSoup(text, 'html.parser')
-    for script in soup(["script", "style"]):
-        script.extract()    # rip it out
-    text = soup.get_text()
-    lines = (line.strip() for line in text.splitlines())
-    chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
-    text = '\n'.join(chunk for chunk in chunks if chunk)
-    for tag in soup.find_all(True):
-        if tag.name not in tags:
-            tag.hidden = True
-    for svg in soup.find_all('svg'):
-        svg.decompose()
-    return soup.prettify()
-def append_item(index,al_property_id, website_url, address, status):
-    propertys_id_list.append(str(al_property_id))
+def clean_text(text):
+    clean_except_tags = re.compile('(?!(\/?p|\/?span|\/?a|\/?address))<.*?>')
+    filtered_html_text = re.sub(clean_except_tags, '', text)  # Removes all HTML tags except those specified by the clean_except_tags pattern.
+    filtered_html_text=filtered_html_text.replace("\r"," ").replace("\n"," ").replace("\t"," ").strip().replace('  ',' ').replace('  ',' ') # Replaces carriage returns, newlines, and tabs with spaces.
+    filtered_html_text=filtered_html_text.strip().encode('ascii', 'ignore').decode('ascii') # Strips extra spaces and encodes the text to ASCII, ignoring non-ASCII characters.
+    filtered_html_text= re.sub('<svg.*?>.*?</svg>', '', filtered_html_text, flags=re.DOTALL) # Removes SVG tags and their contents.
+    filtered_html_text=re.sub(r'\s+', ' ', filtered_html_text).strip()
+    filtered_html_text= re.sub(r'{.*?}', '', filtered_html_text)
+    return filtered_html_text
+
+def append_item(index,place_id, website_url, address, status):
+    place_id_list.append(str(place_id))
     website_url_list.append(website_url)
     address_list.append(address)
     status_list.append(status)
@@ -101,60 +99,53 @@ def extract_address( address_response ):
     address_string = address_string.replace("\r"," ").replace("\n"," ").replace("\t"," ").strip().replace('  ',' ').replace('  ',' ')
     return address_string    
 
-def find_address(response, al_property_id,index):
-    for script in response.xpath('//script'):
-        script.extract()
-    for style in response.xpath('//style'):
-        style.extract()
+def find_address(response, place_id,index, self):
+
     html_text = str(response.text)        
-    website_url = str(response.url).replace('"', '')        
-    address_markers = set(re.findall(address_marker, html_text))
-    filtered_html_text = filter_content(html_text, tags_to_filter)
-    clean = re.compile('<.*?>')
-    clean_except_tags = re.compile('(?!(\/?p|\/?span|\/?address))<.*?>')
-    filtered_html_text = re.sub(clean_except_tags, '', html_text)
-    filtered_html_text = re.sub(clean, '', filtered_html_text)
-    filtered_html_text = re.sub(r'\s+', ' ', filtered_html_text)
-    filtered_html_text= filtered_html_text.strip()
-    filtered_html_text = re.sub(r'\n+', '\n', filtered_html_text)
-    filtered_html_text= re.sub('<svg.*?>.*?</svg>', '', filtered_html_text, flags=re.DOTALL)
-    pattern = r'(.{0,100})(\b(?:' + '|'.join(target_keywords) + r')\b)((.|\n){0,100})'
-    matches = re.findall(pattern, filtered_html_text,re.IGNORECASE)
-    combined_string=''
+    website_url = str(response.url).replace('"', '')
+    address_markers=set(re.findall(address_marker,html_text))
+    raw_text=clean_text(html_text)
+    raw_content_filename='raw_content.json'
+    try:
+        with open(raw_content_filename, "r") as json_file:
+            data = json.load(json_file)
+    except (json.JSONDecodeError, FileNotFoundError):
+        data = []
+    data.append({'place_id':place_id,'raw_content':raw_text})
+    with open(raw_content_filename, "w") as json_file:
+        json.dump(data, json_file, indent=4)
+    pattern = r'(.{0,50})(\b(?:' + '|'.join(target_keywords) + r')\b)((.|\n){0,50})'
+    matches = re.findall(pattern, raw_text,re.IGNORECASE)
+    data_to_append=[]
     if matches:
-        combined_string = ''.join(str(item) for item in matches)
-        combined_string = re.sub(' +', ' ', combined_string)
-        combined_string=combined_string.strip().encode('ascii', 'ignore').decode('ascii')
-        combined_string=re.sub(r'[^a-zA-Z0-9,\/\+\- ]|(?<! ) {2,}', '', combined_string)
+        data_to_append = {
+            'content': ''.join(''.join(match) if isinstance(match, tuple) else match for match in matches),
+            "website_url": website_url,
+            "place_id":place_id,
+        }
+    else:
+        data_to_append = {
+            'content': '',
+            "website_url": website_url,
+            "place_id":place_id,
+        }
     if(len(address_markers)==0): 
-        data_to_append = {
-            "matches": combined_string,
-            "combined_length":len(combined_string),
-            "website_url": website_url,
-            "property_id":int(al_property_id),
-            "status":'AddressNotFound'
-        }
-        write_output_file(data_to_append)
-        append_item(index,str(al_property_id), website_url, '--', "AddressNotFound"); 
+        data_to_append['status']='AddressNotFound'
+        write_data_file(self.data_file,data_to_append)
+        append_item(index,str(place_id), website_url, '--', "AddressNotFound"); 
     else: 
-        data_to_append = {
-            "matches": combined_string,
-            "combined_length":len(combined_string),
-            "website_url": website_url,
-            "property_id":int(al_property_id),
-            "status":'AddressNotFound'
-        }
+        data_to_append['status']='AddressFound'
+        write_data_file(self.data_file,data_to_append)
         for marker in address_markers:
-            write_output_file(data_to_append)
             if(isinstance(marker, tuple)):
                 if marker[0] == '':
                     marker = marker[1]
                 else:
-                    marker = marker[0] 
-                    
-            ancestor_text = response.xpath('//*/text()[contains(normalize-space(), "{}")]/../..'.format(marker)).getall()                  
+                    marker = marker[0]   
+            ancestor_text = response.xpath('//*/text()[contains(normalize-space(), "{}")]/../..'.format(marker)).getall()                 
             address_response = ancestor_text[0].strip()
             final_address = extract_address(address_response)
+            final_address=clean_text(final_address)
             ## Check the length of this text and take just the max 200 characters preceding the marker
             if(len(final_address) > 500):
                 marker_position = final_address.find(marker)
@@ -164,7 +155,7 @@ def find_address(response, al_property_id,index):
                     final_address = final_address[start_posiiton: end_position]
             
             logging.debug("Address found - {}".format(final_address))
-            append_item(index,str(al_property_id), website_url, final_address, 'AddressFound')                
+            append_item(index,str(place_id), website_url, final_address, 'AddressFound')                
 
 class AddressCrawler(scrapy.Spider):
     name='address-spider'
@@ -174,29 +165,33 @@ class AddressCrawler(scrapy.Spider):
     }
 
     def start_requests(self):
+
         logging.info(self.input_file)
-        logging.info(self.row_count)
         logging.info(self.output_file)
+        logging.info(self.data_file)
+        logging.info(self.chunksize)
+
         df_scraping = read_input_file(self.input_file, chunksize=self.chunksize)
+
         for chunk_number, chunk in enumerate(df_scraping, start=1):
-            for index in range( len( chunk[AL_PROPERTY_ID] ) ):
-                property_url = str(chunk[WEBSITE].iloc[index])
-                al_property_id = chunk[AL_PROPERTY_ID].iloc[index]
-                if property_url=="nan" :
+            for index in range( len( chunk[PLACE_ID] ) ):
+                place_url = str(chunk[WEBSITE].iloc[index])
+                place_id= chunk[PLACE_ID].iloc[index]
+                if place_url=="nan" :
                     website_url="---------------"
                     address="---------------"
                     status="WebsiteNotAvailable"
-                    append_item(index,al_property_id, website_url, address, status)
+                    append_item(index,place_id, website_url, address, status)
                 else :
-                    if "http://"  not in property_url and "https://" not in property_url:
-                        property_url= "https://"  + property_url
+                    if "http://"  not in place_url and "https://" not in place_url:
+                        place_url= "https://"  + place_url
 
-                    yield scrapy.Request(url=property_url, callback=self.parse_home_page, meta={'al_property_id' : al_property_id,'index':index}, errback=self.error_callback)
+                    yield scrapy.Request(url=place_url, callback=self.parse_home_page, meta={'place_id' : place_id,'index':index}, errback=self.error_callback)
             
     def error_callback(self, failure):
         err_response = 'Unknown'
         request = failure.request
-        al_property_id = request.meta['al_property_id']
+        place_id= request.meta['place_id']
         index=request.meta['index']
             
         if failure.check(HttpError):
@@ -211,26 +206,26 @@ class AddressCrawler(scrapy.Spider):
             err_response='ConnectionRefusedError'
            
         logging.error(err_response + ' ' + request.url)      
-        append_item(index,str(al_property_id), request.url, '--', err_response)
+        append_item(index, str(place_id), request.url, '--', err_response)
        
     def parse_home_page(self, response):
-        al_property_id=response.request.meta['al_property_id']
+        place_id=response.request.meta['place_id']
         index=response.request.meta['index']
-        find_address(response, al_property_id,index)
-        allow_patterns = (re.compile(r'about', re.IGNORECASE), re.compile(r'contact', re.IGNORECASE),re.compile(r'enquire', re.IGNORECASE))
+        find_address(response, place_id,index, self)
+        allow_patterns = (re.compile(r'about', re.IGNORECASE), re.compile(r'contact|cointact\s*us', re.IGNORECASE), re.compile(r'enquire', re.IGNORECASE), re.compile(r'location|locate|locate\s*us', re.IGNORECASE))
         links = LxmlLinkExtractor(allow=allow_patterns,deny=(r'about(.)*[\/](.)+', r'privacy', r'terms')).extract_links(response)
         for link in links:
-            yield response.follow(link.url, callback=self.parse_inner_page, meta={'al_property_id':al_property_id,'index':index }, errback=self.error_callback)       
+            yield response.follow(link.url, callback=self.parse_inner_page, meta={'place_id':place_id,'index':index }, errback=self.error_callback)       
 
     def parse_inner_page(self, response):
-        al_property_id = response.request.meta['al_property_id']
+        place_id= response.request.meta['place_id']
         index=response.request.meta['index']
-        find_address(response, al_property_id,index)
+        find_address(response, place_id,index, self)
         
     def close(self, reason):
         # TODO: This seems to be writing the whole file after _every_ crawled page
         logging.info("Writing the crawled addresses to a file")
-        df_address_database = pd.DataFrame(list(zip(index_list,propertys_id_list, website_url_list, address_list, status_list)),
-            columns =[INDEX,AL_PROPERTY_ID, WEBSITE, ADDRESS, STATUS])
+        df_address_database = pd.DataFrame(list(zip(index_list,place_id_list, website_url_list, address_list, status_list)),
+            columns =[INDEX, PLACE_ID, WEBSITE, ADDRESS, STATUS])
         df_address_database.to_csv(self.output_file, sep='|',index=False)
         
