@@ -11,6 +11,7 @@ from twisted.internet.error import ConnectionRefusedError
 import logging
 from bs4 import BeautifulSoup
 import json
+from cleantext import clean
 
 PLACE_ID='place_id'
 WEBSITE = 'website'
@@ -137,6 +138,7 @@ def find_address(response, place_id,index, self):
         data_to_append['status']='AddressFound'
         write_data_file(self.data_file,data_to_append)
         for marker in address_markers:
+            marker = re.sub(r'<(script|style)(.*?)<\/\1>', '', marker , flags=re.DOTALL)
             if(isinstance(marker, tuple)):
                 if marker[0] == '':
                     marker = marker[1]
@@ -153,7 +155,6 @@ def find_address(response, place_id,index, self):
                     end_position = marker_position + len(marker) + 1
                     start_posiiton = (marker_position - 200) if (marker_position > 200) else 0
                     final_address = final_address[start_posiiton: end_position]
-            
             logging.debug("Address found - {}".format(final_address))
             append_item(index,str(place_id), website_url, final_address, 'AddressFound')                
 
