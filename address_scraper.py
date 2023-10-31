@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Created on Thu Nov 18 16:31:42 2021
 
@@ -36,7 +38,7 @@ pd.set_option('display.max_colwidth', 1)
 
 #List to store contact details
 lst_clean_addr=[]
-lst_tenant_id=[]
+lst_place_id=[]
 lst_crawl_link=[]
 lst_raw_addr=[]
 lst_parsed_addr=[]
@@ -77,31 +79,30 @@ logger.info('*********** POST PROCESSING STARTED ***********')
 parser=argparse.ArgumentParser()
 parser.add_argument('input_file_path',help="Please provide Generic_Crawler_File." )
 args=parser.parse_args()
-input_file_path=args.input_file_path
-output_file_path=args.output_file_path
+empirical_file_path=empirical_file_path=args.input_file_path
 
 #Read Generic Crawler File
-df_scraping = pd.read_csv(input_file_path,sep='|',low_memory = True)
+df_scraping = pd.read_csv(empirical_file_path,sep='|',low_memory = True)
 
 #Remove Duplicates
 df_scraping=df_scraping.drop_duplicates()
-df_scraping=df_scraping.drop_duplicates(subset=['al_property_id','Address'], keep='first')
+df_scraping=df_scraping.drop_duplicates(subset=['place_id','Address'], keep='first')
 # Fill dataframe with empty string if NaN
 df_scraping = df_scraping.fillna('')
 df_scraping=df_scraping.reset_index(drop=True)
 
 
 # Total Number of Address Found
-for index in range(len(df_scraping['al_property_id'])):
-    lst_total_url.append(df_scraping['al_property_id'][index])
+for index in range(len(df_scraping['place_id'])):
+    lst_total_url.append(df_scraping['place_id'][index])
     if df_scraping['Status'][index]=='AddressFound':
-        ID_addr_found=df_scraping['al_property_id'][index]
+        ID_addr_found=df_scraping['place_id'][index]
         lst_ID_addr_found.append(ID_addr_found)
     elif df_scraping['Status'][index]=='AddressNotFound':
-        ID_addr_not_found=df_scraping['al_property_id'][index]
+        ID_addr_not_found=df_scraping['place_id'][index]
         lst_addr_not_found.append(ID_addr_not_found)
     else:
-        ID_error=df_scraping['al_property_id'][index]
+        ID_error=df_scraping['place_id'][index]
         lst_ID_error_found.append(ID_error)
 
 
@@ -124,8 +125,8 @@ lst_temp_cmn_error=list(set(lst_ID_addr_found) & set(lst_ID_error_found))
 lst_final_status_change=lst_temp_cmn_addr_not_found+lst_temp_cmn_error
 #print(len(lst_final_status_change))
 #Find those tenand Id and change status
-for index in range(len(df_scraping['al_property_id'])):
-    if df_scraping['al_property_id'][index] in lst_final_status_change and df_scraping['Status'][index]!='AddressFound':
+for index in range(len(df_scraping['place_id'])):
+    if df_scraping['place_id'][index] in lst_final_status_change and df_scraping['Status'][index]!='AddressFound':
         df_scraping['Status'][index]='change'
 
 
@@ -136,31 +137,34 @@ df_scraping=df_scraping.reset_index(drop=True)
 #Stats for Status : Error / Addr not available
 lst_stat_addr_not_found=[]
 lst_stat_error=[]
-for index in range(len(df_scraping['al_property_id'])):
+for index in range(len(df_scraping['place_id'])):
     if df_scraping['Status'][index]!='AddressFound' and df_scraping['Status'][index]!='AddressNotFound':
-        ID_error_found=df_scraping['al_property_id'][index]
+        ID_error_found=df_scraping['place_id'][index]
         lst_stat_error.append(ID_error_found)
     if df_scraping['Status'][index]=='AddressNotFound':
-         addr_not_found=df_scraping['al_property_id'][index]
+         addr_not_found=df_scraping['place_id'][index]
          lst_stat_addr_not_found.append(addr_not_found)
 
-print("Total number of unique tenant ID where website dosent crawl(Error) ::",len(set(lst_stat_error)))
-print("Total number of unique tenant ID where addr not available::",len(set(lst_stat_addr_not_found)))
+print("Total number of unique place ID where website dosent crawl(Error) ::",len(set(lst_stat_error)))
+print("Total number of unique place ID where addr not available::",len(set(lst_stat_addr_not_found)))
 print("Total number of Tenant Id crawled ::",len(set(lst_total_url)))
 print("Total number of Address Found Status ::",len(lst_ID_addr_found))    
 lst_unique_ID_addr_found=set(lst_ID_addr_found) 
 print("Total number of Unique Tenant ID with Address Found Status ::",len(lst_unique_ID_addr_found)) 
 
+#logger.info("Total number of unique Tenant ID where website dosent crawl(Error) ::"+str(len(lst_ID_error_found)))
+#logger.info("Total number of unique Tenant ID where addr not available::"+str(len(lst_addr_not_found)))          
+    
 
 # Regex to filter only clean address(Melborne)
-re_clean_address = r"(\d+\s\w+\s\w+\s\bStreet\b|\d+\s\w+\s\w+\bSt\b|\d+\s\w+\s\w+\bRoad\b|\bLevel\b[,]?\s\d+|\bUnit\b[,]?\s\d+|\bGPO Box\b[,]?\s\d{4}|\bPO Box\b|\bNSW\b|\bNew\sSouth\sWales\b|\bSydney\b|\bSyd\b)(.*?)(\bNSW\b|\bNew\sSouth\sWales\b|\bSydney\b|\bSyd\b|\bAustralia\b|\bGPO Box\b[,]?\s\d{4}|\bPO Box\b)"
+re_clean_address=(r"(\d+\s\w+\s\w+\s\bStreet\b|\d+\s\w+\s\w+\bSt\b|\d+\s\w+\s\w+\bRoad\b|\bLevel\b[,]?\s\d+|\bUnit\b[,]?\s\d+|\bGPO Box\b[,]?\s\d{4}|\bPO Box\b[,]?\s\d{4}|\bPO Box\b)(.*?)(\bNSW\b[,]?\s\d{4}|\bQLD\b[,]?\s\d{4}|\bSA\b[,]?\s\d{4}|\bTAS\b[,]?\s\d{4}|\bVIC\b[,]?\s\d{4}|\bWA\b[,]?\s\d{4}|\bQueensland\b[,]?\s\d{4}|\bTasmania\b[,]?\s\d{4}|\bVictoria\b[,]?\s\d{4}|\bWales\b[,]?\s\d{4}|\bWestern Australia\b[,]?\s\d{4}|\bSouth Australia\b[,]?\s\d{4}|\bNew South Wales\b[,]?\s\d{4}|\bAustralia\b[,]?\s\d{4})")
 
 #Cleaning, Parsing, Saperate parse address to different column 
 #Cleaning, Parsing, Saperate parse address to different column 
-for index in range(len(df_scraping['al_property_id'])):
+for index in range(len(df_scraping['place_id'])):
 #for index in range(20):
     if df_scraping['Status'][index]!='AddressNotFound' and df_scraping['Status'][index]!='AddressFound':
-       lst_tenant_id.append(df_scraping['al_property_id'][index])
+       lst_place_id.append(df_scraping['place_id'][index])
        lst_crawl_link.append(df_scraping['website'][index])
        lst_raw_addr.append(df_scraping['Address'][index])
        lst_status.append(df_scraping['Status'][index])
@@ -173,7 +177,7 @@ for index in range(len(df_scraping['al_property_id'])):
 
       
     if df_scraping['Status'][index]=='AddressNotFound':
-       lst_tenant_id.append(df_scraping['al_property_id'][index])
+       lst_place_id.append(df_scraping['place_id'][index])
        lst_crawl_link.append(df_scraping['website'][index])
        lst_raw_addr.append(df_scraping['Address'][index])
        lst_status.append(df_scraping['Status'][index])
@@ -210,7 +214,7 @@ for index in range(len(df_scraping['al_property_id'])):
                 state=mel_parse_address['state']
             else:
                  state=''
-            lst_tenant_id.append(df_scraping['al_property_id'][index])
+            lst_place_id.append(df_scraping['place_id'][index])
             lst_crawl_link.append(df_scraping.website[index])
             lst_raw_addr.append(df_scraping.Address[index])
             lst_status.append(df_scraping['Status'][index])
@@ -223,12 +227,12 @@ for index in range(len(df_scraping['al_property_id'])):
         
         
   
-df_address_database = pd.DataFrame(list(zip(lst_tenant_id ,lst_crawl_link,lst_raw_addr,lst_status,lst_clean_addr,lst_parsed_addr,lst_postcode,lst_city,lst_suburb,lst_state)),
-            columns =['al_property_id' , 'website' ,'Address','Status','CleanAddress','Parsed Address','Post Code','City','Suburb','State'])
+df_address_database = pd.DataFrame(list(zip(lst_place_id ,lst_crawl_link,lst_raw_addr,lst_status,lst_clean_addr,lst_parsed_addr,lst_postcode,lst_city,lst_suburb,lst_state)),
+            columns =['place_id' , 'website' ,'Address','Status','CleanAddress','Parsed Address','Post Code','City','Suburb','State'])
 
 print(df_address_database.info())
 
 #df_address_database=df_address_database.drop_duplicates(subset=['TenantId', 'CleanAddress'], keep='first')   
-df_address_database.to_csv("./"+output_file_path, sep='|',index=False) 
+df_address_database.to_csv("./sydney_place_details_with_near_search_102023_unique_final_output.csv", sep='|',index=False) 
 
 
